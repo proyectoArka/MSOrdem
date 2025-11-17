@@ -8,4 +8,5 @@ public interface OrdenProductoGateway {
     Flux<OrdenProductoModel> findByOrdenId(Long ordenId);
     Mono<OrdenProductoModel> findByOrdenIdAndProductoId(Long ordenId, Long productoId);
     Mono<OrdenProductoModel> save(OrdenProductoModel ordenProductoModel);
+    Mono<Void> deleteByOrdenIdAndProductoId(Long ordenId, Long productoId);
 }

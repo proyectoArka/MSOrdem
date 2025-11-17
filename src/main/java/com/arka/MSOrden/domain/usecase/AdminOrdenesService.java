@@ -1,15 +1,14 @@
 package com.arka.MSOrden.domain.usecase;
 
-import com.arka.MSOrden.application.dtos.DetalleOrdenDto;
-import com.arka.MSOrden.application.dtos.DetalleProductoOrdenDto;
-import com.arka.MSOrden.application.dtos.ListarOrdenDto;
+import com.arka.MSOrden.application.dto.DetalleOrdenDto;
+import com.arka.MSOrden.application.dto.DetalleProductoOrdenDto;
+import com.arka.MSOrden.application.dto.ListarOrdenDto;
+import com.arka.MSOrden.domain.exception.OrdenNotFoundException;
 import com.arka.MSOrden.domain.model.Gateway.AuthGateway;
 import com.arka.MSOrden.domain.model.Gateway.EstadoOrdenGateway;
 import com.arka.MSOrden.domain.model.Gateway.InventarioGateway;
 import com.arka.MSOrden.domain.model.Gateway.OrdenGateway;
 import com.arka.MSOrden.domain.model.Gateway.OrdenProductoGateway;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -80,7 +79,7 @@ public class AdminOrdenesService {
      */
     public Mono<DetalleOrdenDto> obtenerDetalleOrden(Long ordenId) {
         return ordenGateway.findById(ordenId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada")))
+                .switchIfEmpty(Mono.error(new OrdenNotFoundException(ordenId)))
                 .flatMap(orden ->
                         // Obtener los productos de la orden
                         ordenProductoGateway.findByOrdenId(ordenId)

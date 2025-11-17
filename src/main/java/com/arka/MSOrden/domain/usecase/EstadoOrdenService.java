@@ -1,6 +1,6 @@
 package com.arka.MSOrden.domain.usecase;
 
-import com.arka.MSOrden.application.dtos.MostrarInformacionOrdenDto;
+import com.arka.MSOrden.application.dto.MostrarInformacionOrdenDto;
 import com.arka.MSOrden.domain.model.Gateway.OrdenGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

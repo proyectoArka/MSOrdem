@@ -1,6 +1,6 @@
 package com.arka.MSOrden.domain.usecase;
 
-import com.arka.MSOrden.application.dtos.*;
+import com.arka.MSOrden.application.dto.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.client.RestTemplate;
 import reactor.core.publisher.Mono;

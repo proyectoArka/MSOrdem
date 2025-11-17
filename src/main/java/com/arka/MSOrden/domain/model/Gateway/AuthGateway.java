@@ -1,6 +1,6 @@
 package com.arka.MSOrden.domain.model.Gateway;
 
-import com.arka.MSOrden.application.dtos.ConsultUserInAuthDto;
+import com.arka.MSOrden.application.dto.ConsultUserInAuthDto;
 import reactor.core.publisher.Mono;
 
 /**

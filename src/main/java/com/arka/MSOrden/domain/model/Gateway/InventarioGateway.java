@@ -1,6 +1,6 @@
 package com.arka.MSOrden.domain.model.Gateway;
 
-import com.arka.MSOrden.application.dtos.ConsultProductInventarioDto;
+import com.arka.MSOrden.application.dto.ConsultProductInventarioDto;
 import reactor.core.publisher.Mono;
 
 /**

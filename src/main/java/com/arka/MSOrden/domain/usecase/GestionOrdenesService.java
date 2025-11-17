@@ -1,13 +1,14 @@
 package com.arka.MSOrden.domain.usecase;
 
-import com.arka.MSOrden.application.dtos.*;
+import com.arka.MSOrden.application.dto.*;
+import com.arka.MSOrden.domain.exception.EmptyProductListException;
+import com.arka.MSOrden.domain.exception.InvalidProductQuantityException;
+import com.arka.MSOrden.domain.exception.OrdenNotFoundException;
+import com.arka.MSOrden.domain.exception.StockInsuficienteException;
+import com.arka.MSOrden.domain.exception.UsuarioNotFoundException;
 import com.arka.MSOrden.domain.model.Gateway.*;
 import com.arka.MSOrden.domain.model.OrdenModel;
 import com.arka.MSOrden.domain.model.OrdenProductoModel;
-import com.arka.MSOrden.infrastructure.exception.ProductoNoEncontradoException;
-import com.arka.MSOrden.infrastructure.exception.UsuarioNoEncontradoException;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -39,7 +40,7 @@ public class GestionOrdenesService {
     public Mono<OrdenModel> agregarProductoAOrden(RecibirNewOrdenDto newOrdenDto) {
         List<RecibirNewOrdenProductosDto> productos = newOrdenDto.getProductos();
         if (productos == null || productos.isEmpty()) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "No se recibieron productos"));
+            return Mono.error(new EmptyProductListException());
         }
 
         // obtener o crear la orden
@@ -61,15 +62,16 @@ public class GestionOrdenesService {
                                 .concatMap(pdto -> {
                                     Long cantidad = pdto.getCantidad();
                                     if (cantidad == null || cantidad <= 0L) {
-                                        return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                                "Cantidad inválida para producto " + pdto.getProductoId()));
+                                        return Mono.error(new InvalidProductQuantityException(
+                                                pdto.getProductoId(), cantidad != null ? cantidad : 0L));
                                     }
                                     // consultar inventario
                                     return inventarioGateway.consultarProducto(pdto.getProductoId())
                                             .flatMap(inv -> {
                                                 // verificar stock suficiente
                                                 if (inv.getStock() < cantidad) {
-                                                    return Mono.error(new ProductoNoEncontradoException("No hay suficiente inventario para el producto con ID " + pdto.getProductoId()));
+                                                    return Mono.error(new StockInsuficienteException(
+                                                            pdto.getProductoId(), inv.getStock(), cantidad));
                                                 }
 
                                                 // calcular precio total
@@ -143,9 +145,10 @@ public class GestionOrdenesService {
     public Mono<Void> calcularNuevoStockInventario(Long productoId, Long cantidadVendida) {
         return inventarioGateway.consultarProducto(productoId)
                 .flatMap(inv -> {
-                    Long nuevoStock = inv.getStock() - cantidadVendida;
+                    long nuevoStock = inv.getStock() - cantidadVendida;
                     if (nuevoStock < 0) {
-                        return Mono.error(new ProductoNoEncontradoException("No hay suficiente inventario para el producto con ID " + productoId));
+                        return Mono.error(new StockInsuficienteException(
+                                productoId, inv.getStock(), cantidadVendida));
                     }
                     return inventarioGateway.actualizarStock(productoId, nuevoStock);
                 });
@@ -153,19 +156,19 @@ public class GestionOrdenesService {
 
     public Mono<MostrarInformacionOrdenDto> editarOrden(Long userid, EditarProductosOrdenDto editarProductosOrdenDto) {
         if (editarProductosOrdenDto == null || editarProductosOrdenDto.getIdProducto() == null) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Producto inválido"));
+            return Mono.error(new InvalidProductQuantityException("Producto inválido"));
         }
         Long idProducto = editarProductosOrdenDto.getIdProducto();
         Long nuevaCantidad = editarProductosOrdenDto.getNuevaCantidad();
         if (nuevaCantidad == null || nuevaCantidad <= 0L) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cantidad inválida"));
+            return Mono.error(new InvalidProductQuantityException(idProducto, nuevaCantidad != null ? nuevaCantidad : 0L));
         }
 
         return ordenGateway.BuscarOrdenPorIdUsuario(userid)
-                .switchIfEmpty(Mono.error(new ProductoNoEncontradoException("No existe la orden para el usuario con ID " + userid)))
+                .switchIfEmpty(Mono.error(new OrdenNotFoundException("No existe la orden para el usuario con ID " + userid)))
                 .flatMap(orden -> {
                     if (orden.getEstadoorden() == null || orden.getEstadoorden() != 1L) {
-                        return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        return Mono.error(new IllegalStateException(
                                 "Solo se pueden editar órdenes en estado PENDIENTE. Esta orden ya ha sido procesada."));
                     }
                     return Mono.just(orden);
@@ -177,7 +180,8 @@ public class GestionOrdenesService {
                                                 .flatMap(inv -> {
                                                     long cantidadAnterior = ordenProducto.getCantidad();
                                                     if (inv.getStock() + cantidadAnterior < nuevaCantidad) {
-                                                        return Mono.error(new ProductoNoEncontradoException("No hay suficiente inventario para el producto con ID " + idProducto));
+                                                        return Mono.error(new StockInsuficienteException(
+                                                                idProducto, inv.getStock() + cantidadAnterior, nuevaCantidad));
                                                     }
                                                     double nuevoPrecioTotal = nuevaCantidad.doubleValue() * inv.getPrice();
 
@@ -199,7 +203,8 @@ public class GestionOrdenesService {
                                         inventarioGateway.consultarProducto(idProducto)
                                                 .flatMap(inv -> {
                                                     if (inv.getStock() < nuevaCantidad) {
-                                                        return Mono.error(new ProductoNoEncontradoException("No hay suficiente inventario para el producto con ID " + idProducto));
+                                                        return Mono.error(new StockInsuficienteException(
+                                                                idProducto, inv.getStock(), nuevaCantidad));
                                                     }
                                                     OrdenProductoModel nuevoProd = OrdenProductoModel.builder()
                                                             .ordenId(orden.getId())
@@ -217,12 +222,66 @@ public class GestionOrdenesService {
                 .flatMap(updatedOrden -> obtenerInformacionOrdenPorUsuario(userid));
     }
 
+    // elimina un producto de la orden del usuario
+    public Mono<MostrarInformacionOrdenDto> eliminarProductoDeOrden(Long userId, Long productoId) {
+        // Validar que el productoId no sea nulo
+        if (productoId == null || productoId <= 0) {
+            return Mono.error(new InvalidProductQuantityException("ID de producto inválido"));
+        }
+
+        return ordenGateway.BuscarOrdenPorIdUsuario(userId)
+                .switchIfEmpty(Mono.error(new OrdenNotFoundException("No existe la orden para el usuario con ID " + userId)))
+                .flatMap(orden -> {
+                    // Validar que la orden esté en estado PENDIENTE (1)
+                    if (orden.getEstadoorden() == null || orden.getEstadoorden() != 1L) {
+                        return Mono.error(new IllegalStateException(
+                                "Solo se pueden eliminar productos de órdenes en estado PENDIENTE. Esta orden ya ha sido procesada."));
+                    }
+                    return Mono.just(orden);
+                })
+                .flatMap(orden ->
+                        // Buscar el producto en la orden
+                        ordenProductoGateway.findByOrdenIdAndProductoId(orden.getId(), productoId)
+                                .switchIfEmpty(Mono.error(new InvalidProductQuantityException(
+                                        "El producto con ID " + productoId + " no existe en la orden")))
+                                .flatMap(ordenProducto -> {
+                                    // Guardar la cantidad antes de eliminar para devolverla al inventario
+                                    Long cantidadADevolver = ordenProducto.getCantidad();
+
+                                    // Eliminar el producto de la orden
+                                    return ordenProductoGateway.deleteByOrdenIdAndProductoId(orden.getId(), productoId)
+                                            .then(Mono.defer(() -> {
+                                                // Devolver el stock al inventario
+                                                return inventarioGateway.consultarProducto(productoId)
+                                                        .flatMap(inv -> {
+                                                            long nuevoStock = inv.getStock() + cantidadADevolver;
+                                                            return inventarioGateway.actualizarStock(productoId, nuevoStock);
+                                                        })
+                                                        .onErrorResume(ex -> {
+                                                            // Si falla la actualización del inventario, lo registramos pero no fallamos la operación
+                                                            // ya que el producto ya fue eliminado de la orden
+                                                            return Mono.empty();
+                                                        });
+                                            }))
+                                            .then(Mono.just(orden));
+                                })
+                )
+                .flatMap(orden ->
+                        // Recalcular los totales de la orden después de eliminar el producto
+                        recalcularYGuardarOrden(orden)
+                )
+                .flatMap(ordenActualizada ->
+                        // Retornar la información actualizada de la orden
+                        obtenerInformacionOrdenPorUsuario(userId)
+                );
+    }
+
     public Mono<MostrarInformacionOrdenDto> obtenerInformacionOrdenPorUsuario(Long userId) {
         return ordenGateway.BuscarOrdenPorIdUsuario(userId)
-                .switchIfEmpty(Mono.error(new ProductoNoEncontradoException("No existe la orden para el usuario con ID " + userId)))
+                .switchIfEmpty(Mono.error(new OrdenNotFoundException("No existe la orden para el usuario con ID " + userId)))
                 .flatMap(orden ->
                         authGateway.consultarUsuario(orden.getUserId())
-                                .switchIfEmpty(Mono.error(new UsuarioNoEncontradoException("No se encontró el usuario con ID " + orden.getUserId())))
+                                .switchIfEmpty(Mono.error(new UsuarioNotFoundException(orden.getUserId())))
                                 .flatMap(userAuth ->
                                         ordenProductoGateway.findByOrdenId(orden.getId())
                                                 .flatMap(prod ->
